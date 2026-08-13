@@ -69,10 +69,10 @@ sequenceDiagram
 ```
 ````
 
-The lightweight embedded renderer handles sequence and ER diagrams. When `mmdc` is installed and `--mmdc` is explicitly supplied, unsupported types such as flowcharts are rendered to a temporary PNG and passed through Termleaf's terminal-image pipeline. Oversized, invalid, or unavailable diagrams fall back to sanitized Mermaid source.
+The lightweight embedded renderer handles flowchart, sequence, and ER diagrams. When `mmdc` is installed and `--mmdc` is explicitly supplied, other Mermaid types are rendered to a temporary PNG and passed through Termleaf's terminal-image pipeline. Oversized, invalid, or unavailable diagrams fall back to sanitized Mermaid source.
 
 ```bash
-# Optional: enables graphical rendering for all Mermaid diagram types
+# Optional: enables graphical fallback for Mermaid types without embedded support
 npm install -g @mermaid-js/mermaid-cli
 termleaf --mmdc guide.md
 ```

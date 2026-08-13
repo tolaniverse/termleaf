@@ -55,7 +55,7 @@ func (c *Cache) Mermaid(source string, width int, mmdc *MMDCRenderer) (output st
 	config.PaddingBetweenY = 2
 	config.SequenceParticipantSpacing = 3
 
-	output, err := renderEmbeddedMermaid(source, config)
+	output, err := renderEmbeddedMermaid(source, width, config)
 	if err != nil && mmdc != nil && c.MMDCEnabled() && c.protocol != ProtocolOff {
 		output, err = mmdc.Render(context.Background(), source, width, c)
 	}
@@ -73,7 +73,7 @@ func (c *Cache) Mermaid(source string, width int, mmdc *MMDCRenderer) (output st
 	return output
 }
 
-func renderEmbeddedMermaid(source string, config *diagram.Config) (string, error) {
+func renderEmbeddedMermaid(source string, width int, config *diagram.Config) (string, error) {
 	trimmed := strings.TrimSpace(source)
 	switch {
 	case sequence.IsSequenceDiagram(trimmed):
@@ -86,6 +86,12 @@ func renderEmbeddedMermaid(source string, config *diagram.Config) (string, error
 			return "", fmt.Errorf("render sequence diagram: %w", err)
 		}
 		return output, nil
+	case isFlowchart(trimmed):
+		output, err := renderFlowchart(trimmed, width)
+		if err != nil {
+			return "", fmt.Errorf("render flowchart: %w", err)
+		}
+		return output, nil
 	case er.IsErDiagram(trimmed):
 		parsed, err := er.Parse(trimmed)
 		if err != nil {
@@ -93,7 +99,7 @@ func renderEmbeddedMermaid(source string, config *diagram.Config) (string, error
 		}
 		return er.Render(parsed, config.UseAscii), nil
 	default:
-		return "", fmt.Errorf("embedded renderer supports sequence and ER diagrams; install mmdc for this diagram type")
+		return "", fmt.Errorf("embedded renderer supports flowchart, sequence, and ER diagrams; install mmdc for this diagram type")
 	}
 }
 
@@ -112,7 +118,11 @@ func validateMermaidInput(source string) error {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed != "" && !strings.HasPrefix(trimmed, "%%") {
-			statements++
+			for _, statement := range strings.Split(trimmed, ";") {
+				if strings.TrimSpace(statement) != "" {
+					statements++
+				}
+			}
 		}
 	}
 	if statements > maxMermaidStatements {

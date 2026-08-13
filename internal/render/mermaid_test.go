@@ -21,11 +21,55 @@ func TestMermaidRendersSequenceDiagram(t *testing.T) {
 	}
 }
 
-func TestMermaidFlowchartFallsBackWithoutMMDC(t *testing.T) {
-	output := NewCache(1<<20).Mermaid("graph LR\nA[Start] --> B[Finish]", 80, nil)
+func TestMermaidRendersFlowchartWithoutMMDC(t *testing.T) {
+	output := NewCache(1<<20).Mermaid("flowchart LR\nA[Start] --> B{Ready?}\nB -->|Yes| C[Finish]", 80, nil)
 	plain := ansi.Strip(output)
-	if !strings.Contains(plain, "Mermaid preview unavailable") || !strings.Contains(plain, "embedded renderer supports") {
-		t.Fatalf("flowchart fallback = %q", plain)
+	if strings.Contains(plain, "Mermaid preview unavailable") || strings.Contains(plain, "flowchart LR") {
+		t.Fatalf("flowchart fell back = %q", plain)
+	}
+	for _, expected := range []string{"Start", "Ready?", "Yes", "Finish", "►"} {
+		if !strings.Contains(plain, expected) {
+			t.Fatalf("flowchart missing %q: %q", expected, plain)
+		}
+	}
+}
+
+func TestMermaidRendersReverseFlowchartDirections(t *testing.T) {
+	rightToLeft := ansi.Strip(NewCache(1<<20).Mermaid("graph RL\nA[Start] --> B[Finish]", 40, nil))
+	if !strings.Contains(rightToLeft, "◄") || strings.Index(rightToLeft, "Finish") > strings.Index(rightToLeft, "Start") {
+		t.Fatalf("RL flowchart = %q", rightToLeft)
+	}
+	bottomToTop := ansi.Strip(NewCache(1<<20).Mermaid("graph BT\nA[Start] --> B[Finish]", 40, nil))
+	if !strings.Contains(bottomToTop, "▲") || strings.Index(bottomToTop, "Finish") > strings.Index(bottomToTop, "Start") {
+		t.Fatalf("BT flowchart = %q", bottomToTop)
+	}
+}
+
+func TestMermaidRendersSingleLineFlowchart(t *testing.T) {
+	output := ansi.Strip(NewCache(1<<20).Mermaid("flowchart LR; A[Start] --> B[Finish]", 50, nil))
+	if !strings.Contains(output, "Start") || !strings.Contains(output, "Finish") || strings.Contains(output, "preview unavailable") {
+		t.Fatalf("single-line flowchart = %q", output)
+	}
+}
+
+func TestMermaidCountsSemicolonStatements(t *testing.T) {
+	source := "flowchart LR;" + strings.Repeat("A-->B;", maxMermaidStatements)
+	output := NewCache(1<<20).Mermaid(source, 80, nil)
+	if !strings.Contains(output, "statements") {
+		t.Fatalf("semicolon statement limit was bypassed: %q", output)
+	}
+}
+
+func TestMermaidRendersVerticalFlowchartWithinWidth(t *testing.T) {
+	output := NewCache(1<<20).Mermaid("graph TD\nA[Start] --> B[Finish]", 24, nil)
+	plain := ansi.Strip(output)
+	if !strings.Contains(plain, "Start") || !strings.Contains(plain, "Finish") || !strings.Contains(plain, "▼") {
+		t.Fatalf("vertical flowchart = %q", plain)
+	}
+	for _, line := range strings.Split(plain, "\n") {
+		if width := ansi.StringWidth(line); width > 24 {
+			t.Fatalf("flowchart line width = %d: %q", width, line)
+		}
 	}
 }
 
