@@ -34,6 +34,37 @@ func TestMermaidRendersFlowchartWithoutMMDC(t *testing.T) {
 	}
 }
 
+func TestMermaidCanvasNormalizesVerticalDiagramOrigin(t *testing.T) {
+	source := `flowchart BT
+L1["Layer 1"]
+L2["Layer 2"]
+L1 --> L2`
+	canvas := NewCache(1 << 20).MermaidCanvas(source)
+	for _, line := range strings.Split(canvas, "\n") {
+		if strings.TrimSpace(line) != "" && strings.HasPrefix(line, strings.Repeat(" ", 100)) {
+			t.Fatalf("canvas retained virtual-width indentation: %q", line[:100])
+		}
+	}
+	if !strings.Contains(canvas, "Layer 1") || !strings.Contains(canvas, "Layer 2") {
+		t.Fatalf("normalized canvas = %q", canvas)
+	}
+}
+
+func TestMermaidRendersDottedLabeledFlowchartEdge(t *testing.T) {
+	output := ansi.Strip(NewCache(1<<20).Mermaid(`flowchart BT
+L1["Layer 1<br/>base files"]
+C["Image configuration"]
+C -. describes how to run .-> L1`, 100, nil))
+	if strings.Contains(output, "preview unavailable") {
+		t.Fatalf("dotted labeled flowchart fell back: %q", output)
+	}
+	for _, expected := range []string{"Layer 1 · base files", "Image configuration", "describes how to run"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("flowchart missing %q: %q", expected, output)
+		}
+	}
+}
+
 func TestMermaidRendersReverseFlowchartDirections(t *testing.T) {
 	rightToLeft := ansi.Strip(NewCache(1<<20).Mermaid("graph RL\nA[Start] --> B[Finish]", 40, nil))
 	if !strings.Contains(rightToLeft, "◄") || strings.Index(rightToLeft, "Finish") > strings.Index(rightToLeft, "Start") {

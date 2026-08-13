@@ -62,7 +62,7 @@ func (c *Cache) Mermaid(source string, width int, mmdc *MMDCRenderer) (output st
 	if err != nil {
 		return storeFallback(err)
 	}
-	output = sanitizeTerminalDrawing(strings.TrimSpace(output))
+	output = sanitizeTerminalDrawing(strings.Trim(output, "\n"))
 	if lineCount(output) > maxMermaidOutputLines {
 		return storeFallback(fmt.Errorf("diagram exceeds %d output lines", maxMermaidOutputLines))
 	}
@@ -117,7 +117,28 @@ func renderEmbeddedMermaid(source string, width int, config *diagram.Config) (st
 func (c *Cache) MermaidCanvas(source string) string {
 	// Canvas panning requires cell-addressable text. Graphical mmdc protocol
 	// output cannot be safely cropped after rendering.
-	return c.Mermaid(source, 2048, nil)
+	return normalizeCanvas(c.Mermaid(source, 2048, nil))
+}
+
+func normalizeCanvas(canvas string) string {
+	lines := strings.Split(strings.Trim(canvas, "\n"), "\n")
+	left := -1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if left < 0 || indent < left {
+			left = indent
+		}
+	}
+	if left <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	for index, line := range lines {
+		lines[index] = strings.TrimRight(ansi.Cut(line, left, ansi.StringWidth(line)), " ")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderCompactSequence(source string, width int) (string, error) {

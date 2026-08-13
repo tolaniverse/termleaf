@@ -28,7 +28,12 @@ type flowDiagram struct {
 	edges     []flowEdge
 }
 
-var flowNodePattern = regexp.MustCompile(`^\s*([[:alnum:]_-]+)(?:\s*(\[\[[^]]*\]\]|\(\([^)]*\)\)|\(\[[^]]*\]\)|\[\([^)]*\)\]|\[[^]]*\]|\{[^}]*\}|\([^)]*\)))?`)
+var (
+	flowNodePattern      = regexp.MustCompile(`^\s*([[:alnum:]_-]+)(?:\s*(\[\[[^]]*\]\]|\(\([^)]*\)\)|\(\[[^]]*\]\)|\[\([^)]*\)\]|\[[^]]*\]|\{[^}]*\}|\([^)]*\)))?`)
+	flowDottedLabelArrow = regexp.MustCompile(`^-\.\s*(.*?)\s*\.->`)
+	flowSolidLabelArrow  = regexp.MustCompile(`^--\s+(.+?)\s+-->`)
+	flowBreakPattern     = regexp.MustCompile(`(?i)<br\s*/?>`)
+)
 
 func isFlowchart(source string) bool {
 	first := firstMermaidStatement(source)
@@ -141,6 +146,12 @@ func parseFlowNode(value string) (flowNode, string, bool) {
 
 func parseFlowArrow(value string) (label, rest string, ok bool) {
 	value = strings.TrimSpace(value)
+	if match := flowDottedLabelArrow.FindStringSubmatchIndex(value); match != nil {
+		return value[match[2]:match[3]], strings.TrimSpace(value[match[1]:]), true
+	}
+	if match := flowSolidLabelArrow.FindStringSubmatchIndex(value); match != nil {
+		return value[match[2]:match[3]], strings.TrimSpace(value[match[1]:]), true
+	}
 	arrowEnd := -1
 	for index := 0; index < len(value); index++ {
 		if value[index] == '>' {
@@ -285,6 +296,7 @@ func trimFlowShape(value string) string {
 
 func cleanFlowLabel(value string) string {
 	value = strings.Trim(strings.TrimSpace(value), `"'`)
+	value = flowBreakPattern.ReplaceAllString(value, " · ")
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return ' '
