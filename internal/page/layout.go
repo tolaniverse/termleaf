@@ -252,7 +252,11 @@ func renderBlock(cache *render.Cache, mmdc *render.MMDCRenderer, block document.
 		return cache.Image(block.Image.Destination, block.Image.Alt, width), nil
 	}
 	if block.Mermaid != nil {
-		return cache.Mermaid(*block.Mermaid, width, mmdc), nil
+		rendered, err := cache.Render(source, width)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimRight(rendered, "\n") + "\n\n[ v ] View Mermaid Diagram", nil
 	}
 	if referenceContext != "" && !strings.Contains(source, referenceContext) {
 		source += "\n\n" + referenceContext

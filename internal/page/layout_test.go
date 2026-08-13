@@ -16,7 +16,7 @@ import (
 	"github.com/tolaniverse/termleaf/internal/render"
 )
 
-func TestRenderAllIncludesMermaidDiagram(t *testing.T) {
+func TestRenderAllShowsMermaidSourceAndCanvasAction(t *testing.T) {
 	source := "# Flow\n\n```mermaid\ngraph LR\nA[Read] --> B[Done]\n```\n\nAfter.\n"
 	blocks := document.IndexBlocks(source)
 	output, err := RenderAll(source, "", blocks, 80, render.NewCache(1<<20), nil)
@@ -24,7 +24,7 @@ func TestRenderAllIncludesMermaidDiagram(t *testing.T) {
 		t.Fatalf("render all: %v", err)
 	}
 	plain := ansi.Strip(output)
-	if !strings.Contains(plain, "Read") || !strings.Contains(plain, "Done") || strings.Contains(plain, "```mermaid") {
+	if !strings.Contains(plain, "graph LR") || !strings.Contains(plain, "A[Read] --> B[Done]") || !strings.Contains(plain, "View Mermaid Diagram") {
 		t.Fatalf("rendered document = %q", plain)
 	}
 }

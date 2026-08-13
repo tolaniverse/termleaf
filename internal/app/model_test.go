@@ -126,6 +126,38 @@ func TestNextBookmarkIsRelativeToCurrentPosition(t *testing.T) {
 	}
 }
 
+func TestOpenVisibleDiagramAndPanWithoutRerender(t *testing.T) {
+	source := "# Diagram\n\n```mermaid\nsequenceDiagram\nAlice->>Bob: Hello\n```\n"
+	blocks := document.IndexBlocks(source)
+	model := New(Config{Markdown: source, Blocks: blocks})
+	model.width, model.height, model.bodyHeight, model.contentWidth = 30, 12, 10, 28
+	model.spans = []page.Span{{Block: 0, StartLine: 0, EndLine: 1, Lines: 1}, {Block: 1, StartLine: 2, EndLine: 8, Lines: 6}}
+	model.viewport.SetWidth(28)
+	model.viewport.SetHeight(10)
+	model.viewport.SetContent(strings.Repeat("line\n", 12))
+
+	updated, cmd := model.openVisibleDiagram(1)
+	model = updated.(Model)
+	if cmd == nil || !model.diagramMode || !model.diagramLoading {
+		t.Fatalf("diagram did not open: %+v", model)
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if model.diagramLoading || !strings.Contains(model.diagramCanvas, "Alice") {
+		t.Fatalf("diagram canvas = %q", model.diagramCanvas)
+	}
+	canvas := model.diagramCanvas
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	model = updated.(Model)
+	if model.diagramCanvas != canvas {
+		t.Fatal("panning rerendered the diagram canvas")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if updated.(Model).diagramMode {
+		t.Fatal("escape did not close diagram mode")
+	}
+}
+
 func TestRapidResizePreservesPendingSemanticAnchor(t *testing.T) {
 	source := "# Start\n\n" + strings.Repeat("Pending anchor remains stable through resize storms. ", 40)
 	blocks := document.IndexBlocks(source)

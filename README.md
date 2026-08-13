@@ -14,6 +14,7 @@ A responsive terminal Markdown reader built with Go and Bubble Tea v2.
 - Case-insensitive `/` search with `n`/`N` result navigation
 - Semantic bookmarks persisted in SQLite
 - Semantic block indexing that keeps fenced code and Mermaid intact
+- Dedicated flicker-free Mermaid canvas with horizontal and vertical panning
 - Page mode stores compact source slices instead of every rendered page
 - Incremental page discovery with one-page lookahead prefetch
 - Local standalone PNG, JPEG, and GIF images
@@ -59,7 +60,7 @@ Maintainers publish a version by pushing a semantic tag such as `v0.1.0`; the re
 
 ## Mermaid diagrams
 
-Fenced Mermaid blocks render directly in the terminal:
+Fenced Mermaid blocks remain readable as source in the document. When one is visible, press `v` on the `[ v ] View Mermaid Diagram` action to open it in a full-terminal canvas:
 
 ````markdown
 ```mermaid
@@ -69,7 +70,7 @@ sequenceDiagram
 ```
 ````
 
-The lightweight embedded renderer handles flowchart, sequence, and ER diagrams. When `mmdc` is installed and `--mmdc` is explicitly supplied, other Mermaid types are rendered to a temporary PNG and passed through Termleaf's terminal-image pipeline. Oversized, invalid, or unavailable diagrams fall back to sanitized Mermaid source.
+The diagram canvas renders once, then arrow keys or `h/j/k/l` pan across the cached result without rerendering or flicker. `Esc`, `q`, or `v` returns to the exact reading position. The lightweight embedded renderer handles flowchart, sequence, and ER diagrams. When `mmdc` is installed and `--mmdc` is explicitly supplied, other Mermaid types are rendered to a temporary PNG and passed through Termleaf's terminal-image pipeline. Oversized, invalid, or unavailable diagrams fall back to sanitized Mermaid source.
 
 ```bash
 # Optional: enables graphical fallback for Mermaid types without embedded support
@@ -87,6 +88,7 @@ termleaf --mmdc guide.md
 | `g/G` | Start/end | First/last page |
 | `/` | Search document | Search document |
 | `n/N` | Next/previous match | Next/previous match |
+| `v/V` | View next/previous visible Mermaid diagram | View next/previous visible Mermaid diagram |
 | `m` | Toggle bookmark | Toggle bookmark |
 | `B` | Next bookmark | Next bookmark |
 | `?` | Help | Help |

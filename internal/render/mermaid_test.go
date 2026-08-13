@@ -73,15 +73,38 @@ func TestMermaidRendersVerticalFlowchartWithinWidth(t *testing.T) {
 	}
 }
 
-func TestMermaidFallsBackWhenDiagramIsTooWide(t *testing.T) {
+func TestMermaidCompactsWideSequenceDiagram(t *testing.T) {
 	source := "sequenceDiagram\nAlice->>Bob: A message wider than a tiny terminal"
-	output := NewCache(1<<20).Mermaid(source, 12, nil)
-	if !strings.Contains(output, "Mermaid pr") || !strings.Contains(output, "sequenceDia") {
-		t.Fatalf("fallback = %q", output)
+	output := NewCache(1<<20).Mermaid(source, 20, nil)
+	if strings.Contains(output, "Mermaid preview unavailable") || !strings.Contains(output, "Alice → Bob") {
+		t.Fatalf("compact sequence = %q", output)
 	}
 	for _, line := range strings.Split(output, "\n") {
-		if width := ansi.StringWidth(line); width > 12 {
-			t.Fatalf("fallback line width = %d, want <= 12: %q", width, line)
+		if width := ansi.StringWidth(line); width > 20 {
+			t.Fatalf("compact line width = %d, want <= 20: %q", width, line)
+		}
+	}
+}
+
+func TestMermaidCompactsREADMESequenceDiagram(t *testing.T) {
+	source := `sequenceDiagram
+    actor User
+    participant Model as Bubble Tea Model
+    participant Index as Block Index
+    participant Planner as Page Planner
+    participant Renderer
+    participant Viewport
+    participant DB as SQLite
+    User->>Model: Open or resize terminal
+    Model->>Index: Read semantic source ranges
+    Planner-->>Model: Compact page slices and stats`
+	output := NewCache(1<<20).Mermaid(source, 108, nil)
+	if strings.Contains(output, "Mermaid preview unavailable") || strings.Contains(output, "sequenceDiagram") {
+		t.Fatalf("README sequence fell back = %q", output)
+	}
+	for _, expected := range []string{"User → Bubble Tea Model", "Bubble Tea Model → Block Index", "Page Planner → Bubble Tea Model"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("compact README sequence missing %q: %q", expected, output)
 		}
 	}
 }

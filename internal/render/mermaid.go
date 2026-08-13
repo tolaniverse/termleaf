@@ -67,7 +67,16 @@ func (c *Cache) Mermaid(source string, width int, mmdc *MMDCRenderer) (output st
 		return storeFallback(fmt.Errorf("diagram exceeds %d output lines", maxMermaidOutputLines))
 	}
 	if widestLine(output) > max(1, width) {
-		return storeFallback(fmt.Errorf("diagram is wider than the reading column"))
+		if sequence.IsSequenceDiagram(strings.TrimSpace(source)) {
+			compact, compactErr := renderCompactSequence(source, width)
+			if compactErr == nil {
+				output = compact
+			} else {
+				return storeFallback(fmt.Errorf("diagram is wider than the reading column"))
+			}
+		} else {
+			return storeFallback(fmt.Errorf("diagram is wider than the reading column"))
+		}
 	}
 	c.put(key, output)
 	return output
@@ -101,6 +110,50 @@ func renderEmbeddedMermaid(source string, width int, config *diagram.Config) (st
 	default:
 		return "", fmt.Errorf("embedded renderer supports flowchart, sequence, and ER diagrams; install mmdc for this diagram type")
 	}
+}
+
+// MermaidCanvas renders a diagram without constraining it to the reading
+// column. The caller crops this stable canvas to the terminal viewport.
+func (c *Cache) MermaidCanvas(source string) string {
+	// Canvas panning requires cell-addressable text. Graphical mmdc protocol
+	// output cannot be safely cropped after rendering.
+	return c.Mermaid(source, 2048, nil)
+}
+
+func renderCompactSequence(source string, width int) (string, error) {
+	parsed, err := sequence.Parse(strings.TrimSpace(source))
+	if err != nil {
+		return "", fmt.Errorf("parse compact sequence diagram: %w", err)
+	}
+	if len(parsed.Messages) == 0 {
+		return "", fmt.Errorf("sequence diagram has no messages")
+	}
+	var output strings.Builder
+	for index, message := range parsed.Messages {
+		from := message.From.Label
+		if from == "" {
+			from = message.From.ID
+		}
+		to := message.To.Label
+		if to == "" {
+			to = message.To.ID
+		}
+		arrow := "→"
+		if message.From == message.To {
+			arrow = "↻"
+		}
+		prefix := from + " " + arrow + " " + to
+		line := prefix
+		if label := strings.TrimSpace(message.Label); label != "" {
+			line += ": " + label
+		}
+		line = ansi.Truncate(sanitizeTerminalText(line), max(1, width), "…")
+		if index > 0 {
+			output.WriteByte('\n')
+		}
+		output.WriteString(line)
+	}
+	return output.String(), nil
 }
 
 func validateMermaidInput(source string) error {

@@ -48,6 +48,12 @@ type jumpResultMsg struct {
 	err        error
 }
 
+type diagramResultMsg struct {
+	generation int
+	block      int
+	canvas     string
+}
+
 type pageResultMsg struct {
 	generation int
 	page       int
@@ -112,6 +118,16 @@ type Model struct {
 	bookmarks        []Bookmark
 	bookmarkIndex    int
 	status           string
+	diagramMode      bool
+	diagramBlock     int
+	diagramCanvas    string
+	diagramLines     []string
+	diagramX         int
+	diagramY         int
+	diagramLoading   bool
+	diagramReturn    pager.Anchor
+	diagramSelection int
+	diagramResized   bool
 	err              error
 }
 
@@ -149,6 +165,13 @@ func (m Model) Init() tea.Cmd { return nil }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		if m.diagramMode {
+			m.width = msg.Width
+			m.height = msg.Height
+			m.diagramResized = true
+			m.clampDiagramPan()
+			return m, nil
+		}
 		lineAnchor := m.LineOffset()
 		anchorProgress := m.ProgressFraction()
 		semanticAnchor := m.SemanticAnchor()
@@ -247,6 +270,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		return m, nil
 
+	case diagramResultMsg:
+		if msg.generation != m.generation || !m.diagramMode || msg.block != m.diagramBlock {
+			return m, nil
+		}
+		m.diagramLoading = false
+		m.diagramCanvas = msg.canvas
+		m.diagramLines = strings.Split(msg.canvas, "\n")
+		m.clampDiagramPan()
+		return m, nil
+
 	case pageResultMsg:
 		if msg.generation != m.generation || msg.page != m.page {
 			return m, nil
@@ -288,6 +321,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if m.diagramMode {
+			switch msg.String() {
+			case "esc", "q", "v":
+				return m.closeDiagram()
+			case "left", "h":
+				m.diagramX -= 4
+			case "right", "l":
+				m.diagramX += 4
+			case "up", "k":
+				m.diagramY--
+			case "down", "j":
+				m.diagramY++
+			case "pageup":
+				m.diagramY -= max(1, m.height-4)
+			case "pagedown", "space":
+				m.diagramY += max(1, m.height-4)
+			case "g", "home":
+				m.diagramX, m.diagramY = 0, 0
+			case "G", "end":
+				m.diagramY = len(m.diagramLines)
+			}
+			m.clampDiagramPan()
+			return m, nil
+		}
 		if m.searching {
 			switch msg.String() {
 			case "enter":
@@ -346,6 +403,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.toggleBookmark()
 			return m, nil
+		case "v":
+			if m.loading {
+				return m, nil
+			}
+			return m.openVisibleDiagram(1)
+		case "V":
+			if m.loading {
+				return m, nil
+			}
+			return m.openVisibleDiagram(-1)
 		case "B":
 			if len(m.bookmarks) == 0 || m.loading {
 				m.status = "no bookmarks"
@@ -415,6 +482,120 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m Model) openVisibleDiagram(direction int) (tea.Model, tea.Cmd) {
+	visible := m.visibleMermaidBlocks()
+	if len(visible) == 0 {
+		m.status = "no Mermaid diagram on this page"
+		return m, nil
+	}
+	if direction < 0 {
+		m.diagramSelection = (m.diagramSelection - 1 + len(visible)) % len(visible)
+	} else if m.diagramSelection >= len(visible) {
+		m.diagramSelection = 0
+	}
+	blockIndex := visible[m.diagramSelection]
+	if direction > 0 {
+		m.diagramSelection = (m.diagramSelection + 1) % len(visible)
+	}
+	m.diagramMode = true
+	m.diagramBlock = blockIndex
+	m.diagramReturn = m.SemanticAnchor()
+	m.diagramX, m.diagramY = 0, 0
+	m.diagramCanvas = ""
+	m.diagramLines = nil
+	m.diagramLoading = true
+	m.generation++
+	source := *m.blocks[blockIndex].Mermaid
+	generation := m.generation
+	return m, func() tea.Msg {
+		return diagramResultMsg{generation: generation, block: blockIndex, canvas: m.cache.MermaidCanvas(source)}
+	}
+}
+
+func (m Model) closeDiagram() (tea.Model, tea.Cmd) {
+	m.diagramMode = false
+	m.diagramLoading = false
+	m.diagramCanvas = ""
+	m.diagramLines = nil
+	if !m.diagramResized {
+		return m, nil
+	}
+	m.diagramResized = false
+	m.bodyHeight = max(1, m.height-chromeHeight)
+	m.contentWidth = max(1, min(maxReadingWidth, m.width-2))
+	m.viewport.SetWidth(m.contentWidth)
+	m.viewport.SetHeight(m.bodyHeight)
+	m.restoredAnchor = m.diagramReturn
+	m.generation++
+	m.loading = true
+	if m.pageMode {
+		m.layout = pager.Layout{}
+		m.pageContent = ""
+		m.planning = true
+		return m, discoverAnchor(m.markdown, m.referenceContext, m.blocks, m.contentWidth, m.bodyHeight, m.cache, m.mmdc, m.diagramReturn, m.generation)
+	}
+	return m, renderDocument(m.markdown, m.referenceContext, m.blocks, m.contentWidth, m.cache, m.mmdc, m.generation)
+}
+
+func (m Model) visibleMermaidBlocks() []int {
+	visible := make([]int, 0, 2)
+	if m.pageMode {
+		if m.page < 0 || m.page >= len(m.layout.Pages) {
+			return visible
+		}
+		for _, slice := range m.layout.Pages[m.page].Slices {
+			if slice.Block >= 0 && slice.Block < len(m.blocks) && m.blocks[slice.Block].Mermaid != nil {
+				if len(visible) == 0 || visible[len(visible)-1] != slice.Block {
+					visible = append(visible, slice.Block)
+				}
+			}
+		}
+		return visible
+	}
+	line := m.viewport.YOffset()
+	for _, span := range m.spans {
+		if span.EndLine <= line || span.StartLine >= line+m.bodyHeight {
+			continue
+		}
+		if span.Block >= 0 && span.Block < len(m.blocks) && m.blocks[span.Block].Mermaid != nil {
+			visible = append(visible, span.Block)
+		}
+	}
+	return visible
+}
+
+func (m *Model) clampDiagramPan() {
+	canvasWidth := 0
+	for _, line := range m.diagramLines {
+		canvasWidth = max(canvasWidth, ansi.StringWidth(line))
+	}
+	viewWidth := max(1, m.width-2)
+	viewHeight := max(1, m.height-3)
+	m.diagramX = max(0, min(m.diagramX, max(0, canvasWidth-viewWidth)))
+	m.diagramY = max(0, min(m.diagramY, max(0, len(m.diagramLines)-viewHeight)))
+}
+
+func (m Model) diagramView() string {
+	if m.diagramLoading || len(m.diagramLines) == 0 {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, "Rendering Mermaid diagram…")
+	}
+	viewWidth := max(1, m.width-2)
+	viewHeight := max(1, m.height-3)
+	end := min(len(m.diagramLines), m.diagramY+viewHeight)
+	visible := make([]string, 0, viewHeight)
+	for _, line := range m.diagramLines[m.diagramY:end] {
+		visible = append(visible, ansi.Cut(line, m.diagramX, m.diagramX+viewWidth))
+	}
+	body := lipgloss.NewStyle().Width(viewWidth).Height(viewHeight).Render(strings.Join(visible, "\n"))
+	footer := fmt.Sprintf("←/→ pan · ↑/↓ scroll · g origin · esc close   x:%d y:%d", m.diagramX, m.diagramY)
+	footer = ansi.Truncate(footer, max(1, m.width), "…")
+	return lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Width(m.width).Align(lipgloss.Center).Render("Mermaid Diagram"),
+		body,
+		lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Width(m.width).Align(lipgloss.Center).Render(footer),
+	)
 }
 
 func (m Model) jumpToSearchResult(index int) (tea.Model, tea.Cmd) {
@@ -623,6 +804,9 @@ func (m Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
 		return m.terminalView("Initializing…")
 	}
+	if m.diagramMode {
+		return m.terminalView(m.diagramView())
+	}
 
 	header := m.headerView()
 	var body string
@@ -670,9 +854,9 @@ func (m Model) headerView() string {
 
 func (m Model) helpView() string {
 	if m.pageMode {
-		return "Termleaf page mode\n\n←/h  previous page\n→/l/space  next page\n/ search · n/N matches\nm toggle bookmark · B next bookmark\ng/G  first/last page\n? or esc  close help\nq  save and quit"
+		return "Termleaf page mode\n\n←/h  previous page\n→/l/space  next page\nv/V next/previous Mermaid diagram\n/ search · n/N matches\nm toggle bookmark · B next bookmark\ng/G  first/last page\n? or esc  close help\nq  save and quit"
 	}
-	return "Termleaf scroll mode\n\nj/k or ↑/↓  scroll\nspace/b  page down/up\n/ search · n/N matches\nm toggle bookmark · B next bookmark\ng/G  start/end\n? or esc  close help\nq  save and quit"
+	return "Termleaf scroll mode\n\nj/k or ↑/↓  scroll\nspace/b  page down/up\nv/V next/previous Mermaid diagram\n/ search · n/N matches\nm toggle bookmark · B next bookmark\ng/G  start/end\n? or esc  close help\nq  save and quit"
 }
 
 func (m Model) footerView() string {
